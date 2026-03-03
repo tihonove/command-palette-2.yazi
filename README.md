@@ -39,7 +39,7 @@ Add a keybinding to your `~/.config/yazi/keymap.toml` to open the palette.
 
 ```toml
 [[manager.prepend_keymap]]
-on   = "<C-p>"
+on   = "<F1>"
 run  = "plugin command-palette-2"
 desc = "Open command palette"
 ```
