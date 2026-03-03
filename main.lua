@@ -1869,99 +1869,7 @@ local function show_modal_palette()
   end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- Fzf Command Palette (use with "fzf" argument)
--- ═══════════════════════════════════════════════════════════════════════════════
-local function show_command_palette()
-  local commands = get_all_commands()
-  
-  if #commands == 0 then
-    fail("No commands found in keymap files")
-    return
-  end
-  
-  local _permit = ya.hide()
-  local child, err = Command("fzf")
-    :arg({
-      "--height=80%",
-      "--layout=reverse",
-      "--border",
-      "--prompt=🔍 Command Palette: ",
-      "--header=Type to search commands",
-      "--preview-window=right:40%",
-      "--preview=echo {2}",
-      "--delimiter=\t",
-      "--with-nth=1",
-      "--bind=ctrl-/:toggle-preview"
-    })
-    :stdin(Command.PIPED)
-    :stdout(Command.PIPED)
-    :stderr(Command.INHERIT)
-    :spawn()
-  
-  if not child then
-    fail("Failed to spawn fzf. Is it installed?")
-    return
-  end
-  
-  -- Build input for fzf with right-aligned key bindings
-  local input_lines = {}
-
-  -- Get terminal width for right-alignment (fallback to 80)
-  local term_width = 80
-  local tw_handle = io.popen("tput cols 2>/dev/null")
-  if tw_handle then
-    local tw_str = tw_handle:read("*l")
-    tw_handle:close()
-    if tw_str then
-      term_width = tonumber(tw_str) or 80
-    end
-  end
-  -- Account for fzf chrome (border, prompt indicator, padding)
-  local available_width = term_width - 6
-
-  for _, cmd in ipairs(commands) do
-    local desc = cmd.desc or "No description"
-    local key_display = cmd.key or "No key"
-    local key_with_brackets = "[" .. key_display .. "]"
-    local padding = available_width - #desc - #key_with_brackets
-    if padding < 2 then padding = 2 end
-    local display = desc .. string.rep(" ", padding) .. key_with_brackets
-    local line = string.format("%s\t%s", display, cmd.run)
-    table.insert(input_lines, line)
-  end
-  
-  child:write_all(table.concat(input_lines, "\n"))
-  child:flush()
-  
-  local output, err = child:wait_with_output()
-  if not output then
-    fail("Cannot read fzf output")
-    return
-  end
-  
-  if not output.status.success and output.status.code ~= 130 then
-    fail("fzf exited with error code: " .. tostring(output.status.code))
-    return
-  end
-  
-  -- Parse fzf output
-  local selected_line = output.stdout:match("([^\n]*)")
-  if not selected_line or selected_line == "" then
-    return
-  end
-  
-  local display, run_cmd = selected_line:match("([^\t]*)\t([^\t]*)")
-  if run_cmd then
-    -- Extract description (before the padding spaces)
-    local desc = display and display:match("^(.-)%s%s") or display or "command"
-    info("Executing: " .. desc)
-    local current_file = get_command_context(run_cmd)
-    emit_command(run_cmd, current_file)
-  end
-end
-
--- Alternative built-in interface (fallback if fzf not available)
+-- Built-in interface using ya.which (limited to 36 items)
 local function show_builtin_palette()
   local commands = get_all_commands()
   
@@ -2005,9 +1913,7 @@ end
 
 M.entry = function(_, args)
   local mode = args and args[1]
-  if mode == "fzf" then
-    show_command_palette()
-  elseif mode == "builtin" then
+  if mode == "builtin" then
     show_builtin_palette()
   else
     show_modal_palette()
