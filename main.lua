@@ -8,10 +8,6 @@ local function info(s, ...)
   ya.notify { title = "Command Palette", content = string.format(s, ...), timeout = 3, level = "info" } 
 end
 
-local function debug(s, ...)
-  ya.notify { title = "Command Palette DEBUG", content = string.format(s, ...), timeout = 5, level = "warn" }
-end
-
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- tinytoml: Pure Lua TOML parser (inlined)
 -- Source: https://github.com/FourierTransformer/tinytoml
@@ -1187,10 +1183,23 @@ end
 -- END tinytoml
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+-- Resolve Yazi config directory, respecting XDG_CONFIG_HOME
+local function get_yazi_config_dir()
+  return (os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/yazi"
+end
+
+-- Apply selection style to a span when selected
+local function styled_span(text, is_selected)
+  if is_selected then
+    return ui.Span(text):style(th.indicator.current)
+  end
+  return ui.Span(text)
+end
+
 -- Get all TOML files from plugins directory
 local function get_plugin_tomls()
   local tomls = {}
-  local plugins_dir = os.getenv("HOME") .. "/.config/yazi/plugins"
+  local plugins_dir = get_yazi_config_dir() .. "/plugins"
   
   -- Try to list directory contents
   local handle = io.popen("find '" .. plugins_dir .. "' -name '*.toml' 2>/dev/null")
@@ -1287,7 +1296,7 @@ local function get_all_commands()
   local commands = {}
   
   -- Try to read from config keymap
-  local config_path = os.getenv("HOME") .. "/.config/yazi/keymap.toml"
+  local config_path = get_yazi_config_dir() .. "/keymap.toml"
   local config_commands = parse_keymap_file(config_path)
   
   for _, cmd in ipairs(config_commands) do
@@ -1304,8 +1313,6 @@ local function get_all_commands()
       table.insert(commands, cmd)
     end
   end
-  
---   debug("Total commands found: " .. #commands)
   
   return commands
 end
@@ -1467,11 +1474,7 @@ end
 -- Build highlighted ui.Span segments for text with matched positions
 local function build_highlighted_spans(text, positions, is_selected)
   if not positions or #positions == 0 then
-    if is_selected then
-      return { ui.Span(text):style(th.indicator.current) }
-    else
-      return { ui.Span(text) }
-    end
+    return { styled_span(text, is_selected) }
   end
 
   local pos_set = {}
@@ -1497,17 +1500,61 @@ local function build_highlighted_spans(text, positions, is_selected)
     else
       local j = i
       while j <= len and not pos_set[j] do j = j + 1 end
-      local chunk = text:sub(i, j - 1)
-      if is_selected then
-        spans[#spans + 1] = ui.Span(chunk):style(th.indicator.current)
-      else
-        spans[#spans + 1] = ui.Span(chunk)
-      end
+      spans[#spans + 1] = styled_span(text:sub(i, j - 1), is_selected)
       i = j
     end
   end
 
   return spans
+end
+
+-- Render a single result row with pill-shape selection styling
+local function render_result_row(cmd, is_selected, content_w, SEL_BG)
+  local desc = cmd.desc or "No description"
+  local key_str = cmd.key or "?"
+  local key_display = "[" .. key_str .. "]"
+
+  local desc_spans = build_highlighted_spans(desc, cmd._desc_positions, is_selected)
+
+  local padding_len = math.max(1, content_w - #desc - #key_display)
+  local padding_span = styled_span(string.rep(" ", padding_len), is_selected)
+
+  -- Build key spans with optional match highlighting
+  local key_spans = {}
+  if cmd._key_positions and #cmd._key_positions > 0 then
+    key_spans[#key_spans + 1] = styled_span("[", is_selected)
+    local inner_spans = build_highlighted_spans(key_str, cmd._key_positions, is_selected)
+    for _, s in ipairs(inner_spans) do key_spans[#key_spans + 1] = s end
+    key_spans[#key_spans + 1] = styled_span("]", is_selected)
+  else
+    key_spans[#key_spans + 1] = styled_span(key_display, is_selected)
+  end
+
+  -- Assemble row: left cap + desc + padding + key + trailing + right cap
+  local all_spans = {}
+
+  if is_selected then
+    all_spans[#all_spans + 1] = ui.Span("\xee\x82\xb6"):fg(SEL_BG)
+  else
+    all_spans[#all_spans + 1] = ui.Span(" ")
+  end
+
+  for _, s in ipairs(desc_spans) do all_spans[#all_spans + 1] = s end
+  all_spans[#all_spans + 1] = padding_span
+  for _, s in ipairs(key_spans) do all_spans[#all_spans + 1] = s end
+
+  if is_selected then
+    local total_len = #desc + padding_len + #key_display
+    local extra = math.max(0, content_w - total_len)
+    if extra > 0 then
+      all_spans[#all_spans + 1] = ui.Span(string.rep(" ", extra)):style(th.indicator.current)
+    end
+    all_spans[#all_spans + 1] = ui.Span("\xee\x82\xb4"):fg(SEL_BG)
+  else
+    all_spans[#all_spans + 1] = ui.Span(" ")
+  end
+
+  return ui.Line(all_spans)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1580,72 +1627,10 @@ function M:redraw()
 
   for i = offset + 1, math.min(offset + visible_h, total) do
     local cmd = filtered[i]
-    local desc = cmd.desc or "No description"
-    local key_str = cmd.key or "?"
-    local key_display = "[" .. key_str .. "]"
     local is_selected = (i - 1 == cursor)
     local row_y = list_y + (i - offset - 1)
     local row_area = ui.Rect { x = inner.x, y = row_y, w = inner.w, h = 1 }
-
-    -- Build highlighted spans for desc
-    local desc_spans = build_highlighted_spans(desc, cmd._desc_positions, is_selected)
-
-    -- Padding between desc and key (content_w excludes caps)
-    local padding_len = math.max(1, content_w - #desc - #key_display)
-    local padding_span
-    if is_selected then
-      padding_span = ui.Span(string.rep(" ", padding_len)):style(th.indicator.current)
-    else
-      padding_span = ui.Span(string.rep(" ", padding_len))
-    end
-
-    -- Build key spans
-    local key_spans = {}
-    if cmd._key_positions and #cmd._key_positions > 0 then
-      local bracket_style = is_selected
-        and function(s) return s:style(th.indicator.current) end
-        or function(s) return s end
-      key_spans[#key_spans + 1] = bracket_style(ui.Span("["))
-      local inner_spans = build_highlighted_spans(key_str, cmd._key_positions, is_selected)
-      for _, s in ipairs(inner_spans) do key_spans[#key_spans + 1] = s end
-      key_spans[#key_spans + 1] = bracket_style(ui.Span("]"))
-    else
-      if is_selected then
-        key_spans[#key_spans + 1] = ui.Span(key_display):style(th.indicator.current)
-      else
-        key_spans[#key_spans + 1] = ui.Span(key_display)
-      end
-    end
-
-    -- Combine all spans with pill-shape caps for selected row
-    local all_spans = {}
-
-    if is_selected then
-      -- Left rounded cap: fg = selection bg, draws  on default bg
-      all_spans[#all_spans + 1] = ui.Span("\xee\x82\xb6"):fg(SEL_BG)
-    else
-      -- Spacer to keep text aligned with selected rows
-      all_spans[#all_spans + 1] = ui.Span(" ")
-    end
-
-    for _, s in ipairs(desc_spans) do all_spans[#all_spans + 1] = s end
-    all_spans[#all_spans + 1] = padding_span
-    for _, s in ipairs(key_spans) do all_spans[#all_spans + 1] = s end
-
-    -- Trailing padding to fill content area, then right cap
-    if is_selected then
-      local total_len = #desc + padding_len + #key_display
-      local extra = math.max(0, content_w - total_len)
-      if extra > 0 then
-        all_spans[#all_spans + 1] = ui.Span(string.rep(" ", extra)):style(th.indicator.current)
-      end
-      -- Right rounded cap: fg = selection bg, draws  on default bg
-      all_spans[#all_spans + 1] = ui.Span("\xee\x82\xb4"):fg(SEL_BG)
-    else
-      all_spans[#all_spans + 1] = ui.Span(" ")
-    end
-
-    elements[#elements + 1] = ui.Line(all_spans):area(row_area)
+    elements[#elements + 1] = render_result_row(cmd, is_selected, content_w, SEL_BG):area(row_area)
   end
 
   -- Empty state
@@ -1693,12 +1678,6 @@ end)
 local update_filter = ya.sync(function(self, filter)
   self.filter = filter
   if filter == "" then
-    -- Clear match metadata and show all commands
-    for _, cmd in ipairs(self.commands or {}) do
-      cmd._score = nil
-      cmd._desc_positions = nil
-      cmd._key_positions = nil
-    end
     self.filtered = self.commands or {}
   else
     local result = {}
@@ -1707,32 +1686,26 @@ local update_filter = ya.sync(function(self, filter)
       local key_score, key_pos = fuzzy_match(filter, cmd.key or "")
 
       if desc_score or key_score then
-        -- Take the better match for ranking; store positions for highlighting
+        -- Create a match entry with scoring metadata (avoids mutating original cmd)
+        local match = {
+          key = cmd.key, desc = cmd.desc, run = cmd.run, source = cmd.source,
+        }
         if (desc_score or -math.huge) >= (key_score or -math.huge) then
-          cmd._score = desc_score
-          cmd._desc_positions = desc_pos
-          cmd._key_positions = nil
+          match._score = desc_score
+          match._desc_positions = desc_pos
         else
-          cmd._score = key_score
-          cmd._desc_positions = nil
-          cmd._key_positions = key_pos
+          match._score = key_score
+          match._key_positions = key_pos
         end
-        result[#result + 1] = cmd
-      else
-        cmd._score = nil
-        cmd._desc_positions = nil
-        cmd._key_positions = nil
+        result[#result + 1] = match
       end
     end
-    -- Sort by score descending (best matches first)
     table.sort(result, function(a, b)
       return (a._score or 0) > (b._score or 0)
     end)
     self.filtered = result
   end
   self.cursor = 0
-  local max_idx = math.max(0, #self.filtered - 1)
-  if self.cursor > max_idx then self.cursor = max_idx end
   ui.render()
 end)
 
@@ -1771,25 +1744,13 @@ end)
 
 local function build_key_candidates()
   local cands = {}
-  -- Letters
-  for c = string.byte("a"), string.byte("z") do
-    local ch = string.char(c)
+  -- Typeable characters: letters, digits, symbols
+  for ch in ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"):gmatch(".") do
     cands[#cands + 1] = { on = ch, action = "type", char = ch }
   end
-  for c = string.byte("A"), string.byte("Z") do
-    local ch = string.char(c)
-    cands[#cands + 1] = { on = ch, action = "type", char = ch }
-  end
-  -- Digits
-  for c = string.byte("0"), string.byte("9") do
-    local ch = string.char(c)
-    cands[#cands + 1] = { on = ch, action = "type", char = ch }
-  end
-  -- Common symbols
   for _, ch in ipairs({ "-", "_", ".", ",", ":", ";", "/", "!", "@", "#", "$", "%%", "&", "*", "(", ")", "+", "=", "'", "?", "|", "~" }) do
     cands[#cands + 1] = { on = ch, action = "type", char = ch }
   end
-  -- Space
   cands[#cands + 1] = { on = "<Space>", action = "type", char = " " }
   -- Navigation and control
   cands[#cands + 1] = { on = "<Backspace>", action = "backspace" }
