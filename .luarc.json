@@ -1,0 +1,8 @@
+{
+  "diagnostics": {
+    "globals": ["ya", "ui", "th", "cx", "Modal", "utf8"]
+  },
+  "runtime": {
+    "version": "Lua 5.4"
+  }
+}

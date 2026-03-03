@@ -60,6 +60,7 @@ local function _error(sm, message, anchor)
    end
    error(table.concat(error_message))
 end
+---@diagnostic disable-next-line: deprecated
 local _unpack = unpack or table.unpack
 local _tointeger = math.tointeger or tonumber
 local _utf8char = utf8 and utf8.char or function(cp)
