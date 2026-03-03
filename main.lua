@@ -1575,7 +1575,7 @@ function M:redraw()
   end
 
   -- Pill-shape selection: Powerline caps take 1 cell each
-  local SEL_BG = "#cba6f7" -- Catppuccin Mocha Mauve (indicator.current bg)
+  local SEL_BG = th.indicator.current:bg()
   local content_w = inner.w - 2 -- usable width between left and right cap
 
   for i = offset + 1, math.min(offset + visible_h, total) do
