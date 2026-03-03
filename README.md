@@ -9,9 +9,7 @@ A command palette plugin for [Yazi](https://yazi-rs.github.io/) — fuzzy-search
 - **Built-in modal UI** — no external dependencies required; renders a floating overlay directly inside Yazi with a search input, fuzzy-filtered results list, and keyboard navigation.
 - **Fuzzy matching** — VSCode-style scoring with CamelCase / word-boundary bonuses; matches are highlighted in the results.
 - **Reads your keymap automatically** — parses `~/.config/yazi/keymap.toml` and any TOML files bundled with the plugin to collect every available command with its description and key binding.
-- **Two interface modes:**
-  - **modal** (default) — native Yazi overlay, zero dependencies.
-  - **builtin** — lightweight `ya.which`-based picker (limited to 36 items).
+- **Native modal UI** — renders a floating overlay directly inside Yazi, zero dependencies.
 
 ## Requirements
 
@@ -39,22 +37,11 @@ git clone https://github.com/tihonove/command-palette-2.yazi \
 
 Add a keybinding to your `~/.config/yazi/keymap.toml` to open the palette.
 
-### Modal mode (recommended, no dependencies)
-
 ```toml
 [[manager.prepend_keymap]]
 on   = "<C-p>"
 run  = "plugin command-palette-2"
 desc = "Open command palette"
-```
-
-### builtin mode
-
-```toml
-[[manager.prepend_keymap]]
-on   = "<C-p>"
-run  = "plugin command-palette-2 builtin"
-desc = "Open command palette (builtin)"
 ```
 
 ## Usage

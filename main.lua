@@ -1351,12 +1351,6 @@ local function emit_command(cmd_string, current_file)
   end
 end
 
--- Get hovered file path from sync context
-local get_command_context = ya.sync(function(self)
-  local h = cx.active.current.hovered
-  return h and tostring(h.url) or ""
-end)
-
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Fuzzy Matching (VSCode-style with CamelHumps)
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1869,55 +1863,8 @@ local function show_modal_palette()
   end
 end
 
--- Built-in interface using ya.which (limited to 36 items)
-local function show_builtin_palette()
-  local commands = get_all_commands()
-  
-  if #commands == 0 then
-    fail("No commands found in keymap files")
-    return
-  end
-  
-  -- Create candidates for ya.which with single character keys
-  local candidates = {}
-  local keys = "abcdefghijklmnopqrstuvwxyz0123456789"
-  
-  for i, cmd in ipairs(commands) do
-    if i > #keys then break end -- Limit to available keys
-    
-    local desc = cmd.desc or "No description"
-    local key_display = cmd.key or "No key"
-    local display = string.format("%s (%s)", desc, key_display)
-    
-    table.insert(candidates, {
-      on = keys:sub(i, i),
-      desc = display,
-      cmd = cmd.run,
-      key = cmd.key
-    })
-  end
-  
-  -- Show the selection interface
-  local choice = ya.which {
-    cands = candidates,
-    silent = true
-  }
-  
-  if choice then
-    local selected = candidates[choice]
-    info("Executing: " .. (selected.desc or "Unknown command"))
-    local current_file = get_command_context(selected.cmd)
-    emit_command(selected.cmd, current_file)
-  end
-end
-
-M.entry = function(_, args)
-  local mode = args and args[1]
-  if mode == "builtin" then
-    show_builtin_palette()
-  else
-    show_modal_palette()
-  end
+M.entry = function()
+  show_modal_palette()
 end
 
 return M
